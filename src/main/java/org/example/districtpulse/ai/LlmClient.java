@@ -1,4 +1,6 @@
 package org.example.districtpulse.ai;
 
-public class LlmClient {
+public interface LlmClient {
+    ExtractionResult extract(String articleText);
+    String summarize(String articleText);
 }
