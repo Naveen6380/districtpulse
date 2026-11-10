@@ -39,4 +39,24 @@ public class NewsArticle {
 
     @Column(length = 20)
     private String processingStatus = "NEW";
+
+    @Column(length = 50)
+    private String category;
+
+    @Column(length = 20)
+    private String severity;
+
+    @Column(length = 100)
+    private String taluk;
+
+    @Column(length = 200)
+    private String locality;
+
+    private Double confidence;
+
+    @Column(columnDefinition = "TEXT")
+    private String summary;
+
+    @Column(columnDefinition = "TEXT")
+    private String evidence;
 }
