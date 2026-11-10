@@ -59,4 +59,6 @@ public class NewsArticle {
 
     @Column(columnDefinition = "TEXT")
     private String evidence;
+
+    private Long incidentId;
 }

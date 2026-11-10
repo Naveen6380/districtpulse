@@ -11,6 +11,10 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
 
     List<NewsArticle> findByProcessingStatus(String processingStatus);
 
+    List<NewsArticle> findByProcessingStatusAndCategoryNot(String processingStatus, String category);
+
+    List<NewsArticle> findByIncidentId(Long incidentId);
+
     @Query("select a.category, count(a) from NewsArticle a where a.processingStatus = 'PROCESSED' and a.category <> 'Not relevant' group by a.category")
     List<Object[]> countByCategory();
 
