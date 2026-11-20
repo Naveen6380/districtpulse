@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('collector','administrator')")
 @RestController
 @RequestMapping("/api/incidents")
 public class IncidentController {

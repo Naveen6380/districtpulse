@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('collector','administrator')")
 @RestController
 @RequestMapping("/api/sources")
 public class SourceController {

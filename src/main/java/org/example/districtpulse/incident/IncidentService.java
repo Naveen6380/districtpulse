@@ -13,7 +13,7 @@ import java.util.stream.Collectors;
 @Service
 public class IncidentService {
 
-    private static final double THRESHOLD = 0.4;   // min word overlap to treat as same incident
+    private static final double THRESHOLD = 0.65;   // min word overlap to treat as same incident
     private static final long MAX_GAP_DAYS = 3;    // articles must be within 3 days
 
     // District name must NOT count as similarity, every article has it
@@ -29,26 +29,19 @@ public class IncidentService {
         this.incidentRepo = incidentRepo;
     }
 
-    /** Rebuilds all incidents from scratch. Safe to run many times. */
+    /** Incrementally links new processed articles; existing IDs and human decisions are preserved. */
     @Transactional
-    public Map<String, Integer> build() {
-        // 1. reset
-        for (NewsArticle a : articleRepo.findAll()) {
-            if (a.getIncidentId() != null) {
-                a.setIncidentId(null);
-                articleRepo.save(a);
-            }
-        }
-        incidentRepo.deleteAll();
-
+    public synchronized Map<String, Integer> build() {
         // 2. relevant articles, oldest first
         List<NewsArticle> articles = new ArrayList<>(
                 articleRepo.findByProcessingStatusAndCategoryNot("PROCESSED", "Not relevant"));
+        articles.removeIf(a -> a.getIncidentId() != null || a.getPublishedAt() == null || a.getPublishedAt().isBefore(LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")).minusDays(30)));
         articles.sort(Comparator.comparing(this::reportedAt));
 
         // 3. group
-        List<Incident> incidents = new ArrayList<>();
+        List<Incident> incidents = new ArrayList<>(incidentRepo.findAll());
         Map<Long, Set<String>> tokenMap = new HashMap<>();
+        for (Incident existing : incidents) tokenMap.put(existing.getId(), tokens(existing.getTitle()));
 
         for (NewsArticle a : articles) {
             LocalDateTime when = reportedAt(a);
@@ -57,8 +50,12 @@ public class IncidentService {
             Incident best = null;
             double bestSim = 0;
             for (Incident inc : incidents) {
-                long gapDays = Math.abs(Duration.between(inc.getLatestReportedAt(), when).toDays());
-                if (gapDays > MAX_GAP_DAYS) continue;
+                long gapDays = Math.abs(Duration.between(inc.getFirstReportedAt(), when).toDays());
+                if (Duration.between(inc.getFirstReportedAt(),when).abs().compareTo(Duration.ofDays(MAX_GAP_DAYS))>0) continue;
+                if (!Objects.equals(a.getCategory(), inc.getCategory())) continue;
+                if (a.getTaluk() == null || "unknown".equalsIgnoreCase(a.getTaluk()) || inc.getTaluk() == null || "unknown".equalsIgnoreCase(inc.getTaluk())) {
+                    if (!cleanTitle(a.getTitle()).equalsIgnoreCase(inc.getTitle())) continue;
+                } else if (!a.getTaluk().equalsIgnoreCase(inc.getTaluk())) continue;
                 double sim = jaccard(tokens, tokenMap.get(inc.getId()));
                 if (sim >= THRESHOLD && sim > bestSim) {
                     best = inc;
@@ -103,7 +100,7 @@ public class IncidentService {
     private void applyPriority(Incident inc) {
         int sev = rank(inc.getSeverity());                       // Low 1, Medium 2, High 3
         int count = inc.getArticleCount() >= 10 ? 3 : inc.getArticleCount() >= 4 ? 2 : inc.getArticleCount() >= 2 ? 1 : 0;
-        boolean recent = inc.getLatestReportedAt().isAfter(LocalDateTime.now().minusDays(3));
+        boolean recent = inc.getLatestReportedAt().isAfter(LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")).minusDays(3));
         int rec = recent ? 1 : 0;
         int score = sev + count + rec;
 

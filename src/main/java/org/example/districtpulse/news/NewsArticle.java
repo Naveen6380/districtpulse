@@ -61,4 +61,7 @@ public class NewsArticle {
     private String evidence;
 
     private Long incidentId;
+    private String extractionMode;
+    @Column(length = 300)
+    private String processingError;
 }

@@ -29,14 +29,15 @@ public class SourceService {
     private final SecretBox secretBox;
     private final UrlGuard urlGuard;
     private final NewsCollectionService newsCollection;
+    private final org.example.districtpulse.news.PipelineCoordinator pipeline;
 
     public SourceService(DataSourceRepository repo, SyncLogRepository logRepo, SecretBox secretBox,
-                         UrlGuard urlGuard, NewsCollectionService newsCollection) {
+                         UrlGuard urlGuard, NewsCollectionService newsCollection, org.example.districtpulse.news.PipelineCoordinator pipeline) {
         this.repo = repo;
         this.logRepo = logRepo;
         this.secretBox = secretBox;
         this.urlGuard = urlGuard;
-        this.newsCollection = newsCollection;
+        this.newsCollection = newsCollection; this.pipeline=pipeline;
     }
 
     public List<Map<String, Object>> list() {
@@ -57,7 +58,7 @@ public class SourceService {
 
     public Map<String, Object> setEnabled(String id, boolean enabled) {
         DataSourceEntity e = find(id);
-        e.setStatus(enabled ? (e.getLastSync() == null ? "pending" : "connected") : "disabled");
+        e.setStatus(enabled ? "pending" : "disabled");
         return dto(repo.save(e));
     }
 
@@ -87,7 +88,7 @@ public class SourceService {
         if ("disabled".equals(e.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Source is disabled");
         }
-        LocalDateTime started = LocalDateTime.now();
+        LocalDateTime started = LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata"));
         String status;
         int records = 0;
         String message;
@@ -107,13 +108,14 @@ public class SourceService {
                         + " new articles saved. Use Process in News to analyse them.";
                 e.setStatus("connected");
                 e.setRecordsCollected(res.found());
-                e.setLastSync(LocalDateTime.now());
+                e.setLastSync(LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")));
+                pipeline.start(false);
             } else {
                 status = "partial";
                 message = "Reachable (HTTP " + r.statusCode() + ", " + r.body().length() + " characters). "
                         + "Automatic extraction currently supports RSS/Atom feeds. This source needs a custom adapter.";
                 e.setStatus("pending");
-                e.setLastSync(LocalDateTime.now());
+                e.setLastSync(LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")));
             }
         } catch (IllegalArgumentException ex) {
             status = "failed";
@@ -129,7 +131,7 @@ public class SourceService {
         SyncLogEntity log = new SyncLogEntity();
         log.setSourceId(e.getId());
         log.setStartedAt(started);
-        log.setDurationSec((int) Math.max(0, Duration.between(started, LocalDateTime.now()).toSeconds()));
+        log.setDurationSec((int) Math.max(0, Duration.between(started, LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata"))).toSeconds()));
         log.setStatus(status);
         log.setRecords(records);
         log.setMessage(message.length() > 1000 ? message.substring(0, 1000) : message);
@@ -149,7 +151,7 @@ public class SourceService {
                 .ignoreContentType(true)
                 .ignoreHttpErrors(true)
                 .maxBodySize(5_000_000)
-                .followRedirects(true);
+                .followRedirects(false);
         if (authHeader != null) c = c.header("Authorization", authHeader);
         return c.execute();
     }
@@ -163,6 +165,7 @@ public class SourceService {
     /** HTTP Basic only. Other authentication schemes need a custom adapter. */
     private String authHeader(DataSourceEntity e) {
         if (!e.isAuthRequired() || e.getCredentialUser() == null || e.getCredentialSecretEnc() == null) return null;
+        if (!e.getUrl().startsWith("https://")) throw new IllegalArgumentException("Authenticated sources require HTTPS");
         String pair = e.getCredentialUser() + ":" + secretBox.decrypt(e.getCredentialSecretEnc());
         return "Basic " + Base64.getEncoder().encodeToString(pair.getBytes(StandardCharsets.UTF_8));
     }
@@ -176,7 +179,7 @@ public class SourceService {
             urlGuard.check(in.url());
             e.setUrl(in.url().trim());
         }
-        if (in.name() != null) e.setName(in.name().trim());
+        if (in.name() != null) { require(in.name(), "Name is required"); if(in.name().length()>200) throw new IllegalArgumentException("Name too long"); e.setName(in.name().trim()); }
         if (in.description() != null) e.setDescription(in.description().trim());
         if (in.category() != null) {
             if (!CATEGORIES.contains(in.category())) throw new IllegalArgumentException("Unknown category: " + in.category());
@@ -240,7 +243,7 @@ public class SourceService {
         m.put("authRequired", e.isAuthRequired());
         m.put("frequency", e.getFrequency() == null ? "" : e.getFrequency());
         m.put("status", e.getStatus());
-        if (e.getLastSync() != null) m.put("lastSync", e.getLastSync().toString());
+        if (e.getLastSync() != null) m.put("lastSync", org.example.districtpulse.platform.DtoService.date(e.getLastSync()));
         m.put("recordsCollected", e.getRecordsCollected());
         return m;
     }
@@ -249,7 +252,7 @@ public class SourceService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", "LOG-" + l.getId());
         m.put("sourceId", "SRC-" + l.getSourceId());
-        m.put("startedAt", l.getStartedAt().toString());
+        m.put("startedAt", org.example.districtpulse.platform.DtoService.date(l.getStartedAt()));
         m.put("durationSec", l.getDurationSec());
         m.put("status", l.getStatus());
         m.put("records", l.getRecords());

@@ -35,6 +35,12 @@ public class Incident {
 
     private int articleCount;
 
+    private String departmentId;
+    private String status = "new";
+    private Double latitude;
+    private Double longitude;
+    @Column(length=2000) private String locationEvidenceUrl;
+
     private int priorityScore;
 
     @Column(length = 20)

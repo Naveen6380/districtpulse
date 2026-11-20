@@ -10,11 +10,8 @@ import java.util.regex.Pattern;
 @ConditionalOnProperty(name = "ai.provider", havingValue = "mock")
 public class MockLlmClient implements LlmClient {
 
-    // VERIFY against official list. District name itself is NOT a taluk.
-    private static final List<String> TALUKS = List.of(
-            "alangudi", "aranthangi", "avudaiyarkoil", "gandarvakottai", "illuppur",
-            "karambakudi", "kulathur", "manamelkudi", "ponnamaravathy", "thirumayam",
-            "viralimalai", "annavasal", "arimalam");
+    @org.springframework.beans.factory.annotation.Value("${district.taluks}") private List<String> taluks;
+    @org.springframework.beans.factory.annotation.Value("${district.aliases}") private List<String> aliases;
 
     private static boolean has(String text, String regex) {
         return Pattern.compile(regex).matcher(text).find();
@@ -51,14 +48,15 @@ public class MockLlmClient implements LlmClient {
         }
 
         String taluk = "unknown";
-        for (String name : TALUKS) {
-            if (t.contains(name)) {
+        for (String name : taluks) {
+            if (t.contains(name.toLowerCase())) {
                 taluk = Character.toUpperCase(name.charAt(0)) + name.substring(1);
                 confidence = Math.max(confidence, 0.5);
                 break;
             }
         }
 
+        if(aliases.stream().noneMatch(a -> t.contains(a.toLowerCase()))) category="Not relevant";
         String evidence = text.length() > 200 ? text.substring(0, 200) : text;
         return new ExtractionResult("DEMO: " + category + " report", category,
                 taluk, "unknown", severity, confidence, evidence);

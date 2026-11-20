@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('collector','administrator')")
 @RestController
 @RequestMapping("/api/news")
 public class NewsController {
@@ -33,6 +34,11 @@ public class NewsController {
     @PostMapping("/process")
     public Map<String, Object> process() {
         return Map.of("processed", processingService.processPending());
+    }
+
+    @PostMapping("/{id}/process")
+    public Map<String,Object> processOne(@PathVariable Long id) {
+        return Map.of("processed",processingService.processOne(id));
     }
 
     @GetMapping

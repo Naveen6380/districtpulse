@@ -26,29 +26,39 @@ public class NewsCollectionService {
 
     private final NewsArticleRepository repository;
     private final List<String> feedUrls;
+    private final org.example.districtpulse.source.UrlGuard guard;
+    private final org.example.districtpulse.source.DataSourceRepository sources;
 
     public NewsCollectionService(NewsArticleRepository repository,
-                                 @Value("${news.rss.urls}") List<String> feedUrls) {
+                                 @Value("${news.rss.urls}") List<String> feedUrls,
+                                 org.example.districtpulse.source.UrlGuard guard,
+                                 org.example.districtpulse.source.DataSourceRepository sources) {
         this.repository = repository;
-        this.feedUrls = feedUrls;
+        this.feedUrls = feedUrls; this.guard=guard; this.sources=sources;
     }
 
     /** Fetches all configured feeds, saves new articles, returns how many were new. */
     public int collect() {
         int saved = 0;
-        for (String feedUrl : feedUrls) {
+        int failures=0;
+        for (var source : sources.findAll().stream().filter(s->"xml".equals(s.getType()) && !s.isAuthRequired() && !"disabled".equals(s.getStatus())).toList()) {
+            String feedUrl=source.getUrl();
             try {
-                saved += collectFromFeed(feedUrl, null).saved();
+                var result=collectFromFeed(feedUrl, null);saved+=result.saved();source.setStatus("connected");source.setRecordsCollected(result.found());source.setLastSync(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));sources.save(source);
             } catch (Exception e) {
-                System.err.println("Feed failed: " + feedUrl + " -> " + e.getMessage());
+                failures++;source.setStatus("failed");sources.save(source);
             }
         }
+        if(failures>0) throw new IllegalStateException("One or more RSS sources failed; inspect source status");
         return saved;
     }
 
     /** Reads one RSS or Atom feed. authHeader is an optional Authorization header value (never logged). */
     public FeedResult collectFromFeed(String feedUrl, String authHeader) throws Exception {
+        guard.check(feedUrl);
         var connection = Jsoup.connect(feedUrl)
+                .followRedirects(false)
+                .maxBodySize(5_000_000)
                 .userAgent("Mozilla/5.0 (DistrictPulse research prototype)")
                 .timeout(15000)
                 .ignoreContentType(true)
@@ -67,6 +77,7 @@ public class NewsCollectionService {
             if (link.isBlank() || title.isBlank()) continue;
             found++;
 
+            try { var uri=java.net.URI.create(link); if(!SetOfSchemes(uri.getScheme())) continue; } catch(Exception invalid){ continue; }
             String hash = sha256(link);
             if (repository.existsByUrlHash(hash)) continue;
 
@@ -77,19 +88,24 @@ public class NewsCollectionService {
             if (date.isBlank()) date = item.select("published").text();
             if (date.isBlank()) date = item.select("updated").text();
 
+            LocalDateTime published=parseDate(date);
+            LocalDateTime now=LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
+            if(published==null || published.isBefore(now.minusDays(30)) || published.isAfter(now.plusMinutes(5))) continue;
             NewsArticle a = new NewsArticle();
             a.setTitle(title.length() > 500 ? title.substring(0, 500) : title);
             a.setUrl(link);
             a.setUrlHash(hash);
             a.setSource(item.select("source").text());
             a.setContent(Jsoup.parse(body).text());
-            a.setPublishedAt(parseDate(date));
-            a.setCollectedAt(LocalDateTime.now());
+            a.setPublishedAt(published);
+            a.setCollectedAt(now);
             repository.save(a);
             saved++;
         }
         return new FeedResult(found, saved);
     }
+
+    private boolean SetOfSchemes(String scheme) { return "http".equalsIgnoreCase(scheme)||"https".equalsIgnoreCase(scheme); }
 
     private LocalDateTime parseDate(String raw) {
         if (raw == null || raw.isBlank()) return null;
